@@ -6,15 +6,24 @@
 
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecureBearSSL.h>  //https
 
 //Cài arduinojson 6
 #include <Arduino_JSON.h> //dùng các hàm liên quan get (vấn đề của thư viện)
 #include <ArduinoJson.h>  //dùng các hàm liên quan post
 
-String serverNameTime = "http://192.168.1.15:5000/esptime";
-String serverNameTook = "http://192.168.1.15:5000/esptook";
-String serverNameIsNotify = "http://192.168.1.15:5000/espisnotify";
+// String serverNameTime = "https://medicine-keeper-server.onrender.com/esptime";
+// String serverNameTook = "https://medicine-keeper-server.onrender.com/esptook";
+// String serverNameIsNotify = "https://medicine-keeper-server.onrender.com/espisnotify";
 //ngrok http 5000 tunnel hoặc dùng địa chỉ ip local
+// String serverNameTime = "https://blue-violet-centipede-sock.cyclic.app/esptime";
+// String serverNameTook = "https://blue-violet-centipede-sock.cyclic.app/esptook";
+// String serverNameIsNotify = "https://blue-violet-centipede-sock.cyclic.app/espisnotify";
+
+String serverNameTime = "https://medicine-keeper-server-production.up.railway.app/esptime";
+String serverNameTook = "https://medicine-keeper-server-production.up.railway.app/esptook";
+String serverNameIsNotify = "https://medicine-keeper-server-production.up.railway.app/espisnotify";
+
 unsigned long lastTime = 0;
 unsigned long timerDelay = 60000;  //Mỗi phút get time từ server 1 lần để đồng bộ
 
@@ -108,7 +117,7 @@ void loop() {
 
   notify();
 
-  getAlarm();
+  //getAlarm();
 
   // Serial.print(daysOfTheWeek[timeClient.getDay()]);
   // Serial.print(", ");
@@ -136,24 +145,28 @@ void getAlarm() {
   if ((millis() - lastTime) > timerDelay) {
     //Check WiFi connection status
     if (WiFi.status() == WL_CONNECTED) {
-      WiFiClient client;
-      HTTPClient http;
+      std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
+      // Ignore SSL certificate validation
+      client->setInsecure();
+
+      //WiFiClient client;
+      HTTPClient https;
 
       String serverPath = serverNameTime + "?ESPCODE=001";
 
       // Your Domain name with URL path or IP address with path
-      http.begin(client, serverPath.c_str());
+      https.begin(*client, serverPath.c_str());
 
       // If you need Node-RED/server authentication, insert user and password below
       //http.setAuthorization("REPLACE_WITH_SERVER_USERNAME", "REPLACE_WITH_SERVER_PASSWORD");
 
       // Send HTTP GET request
-      int httpResponseCode = http.GET();
+      int httpResponseCode = https.GET();
 
       if (httpResponseCode > 0) {
         Serial.print("HTTP Response code: ");
         Serial.println(httpResponseCode);
-        String payload = http.getString();
+        String payload = https.getString();
         //Serial.println(payload);
         JSONVar myJson = JSON.parse(payload);
         if (JSON.typeof(myJson) == "undefined") {
@@ -164,11 +177,20 @@ void getAlarm() {
         Serial.println(myJson);
         Serial.println(myJson["alarm1_hour"]);
         //ĐỒNG BỘ TỪ SERVER VÀO ESP8266
-        hour1 = myJson["alarm1_hour"];
+        hour1 = int(myJson["alarm1_hour"]) + 7;
+        if (hour1 >= 24) {
+          hour1 = hour1 - 24;
+        }
         minute1 = myJson["alarm1_minute"];
-        hour2 = myJson["alarm2_hour"];
+        hour2 = int(myJson["alarm2_hour"]) + 7;
+        if (hour2 >= 24) {
+          hour2 = hour2 - 24;
+        }
         minute2 = myJson["alarm2_minute"];
-        hour3 = myJson["alarm3_hour"];
+        hour3 = int(myJson["alarm3_hour"]) + 7;
+        if (hour3 >= 24) {
+          hour3 = hour3 - 24;
+        }
         minute3 = myJson["alarm3_minute"];
         actived1 = myJson["checked1"];
         actived2 = myJson["checked2"];
@@ -183,7 +205,7 @@ void getAlarm() {
         Serial.println(httpResponseCode);
       }
       // Free resources
-      http.end();
+      https.end();
     } else {
       Serial.println("WiFi Disconnected");
     }
@@ -195,20 +217,24 @@ void getAlarm() {
 
 void postAlarm() {
   if (WiFi.status() == WL_CONNECTED) {
-    WiFiClient client;
-    HTTPClient http;
+    std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
+    // Ignore SSL certificate validation
+    client->setInsecure();
 
-    http.begin(client, serverNameTime);
-    http.addHeader("Content-Type", "application/json");
+    //WiFiClient client;
+    HTTPClient https;
+
+    https.begin(*client, serverNameTime);
+    https.addHeader("Content-Type", "application/json");
 
     // Prepare JSON document
     DynamicJsonDocument doc(2048);
     doc["ESPCODE"] = "001";
-    doc["alarm1_hour"] = hour1;
+    doc["alarm1_hour"] = hour1 - 7;
     doc["alarm1_minute"] = minute1;
-    doc["alarm2_hour"] = hour2;
+    doc["alarm2_hour"] = hour2 - 7;
     doc["alarm2_minute"] = minute2;
-    doc["alarm3_hour"] = hour3;
+    doc["alarm3_hour"] = hour3 - 7;
     doc["alarm3_minute"] = minute3;
     doc["checked1"] = actived1;
     doc["checked2"] = actived2;
@@ -220,7 +246,7 @@ void postAlarm() {
 
     Serial.print(json);
 
-    int httpResponseCode = http.POST(json);
+    int httpResponseCode = https.POST(json);
 
     //int httpResponseCode = http.POST("{\"ESPCODE\":\"001\",\"alarm1_hour\":\"hour1\",\"alarm2_hour\":\"hour2\",\"alarm3_hour\":\"49.54\",\"value3\":\"1005.14\"}");
 
@@ -228,7 +254,7 @@ void postAlarm() {
     Serial.println(httpResponseCode);
 
     // Free resources
-    http.end();
+    https.end();
   } else {
     Serial.println("WiFi Disconnected");
   }
@@ -237,11 +263,15 @@ void postAlarm() {
 
 void postTook() {
   if (WiFi.status() == WL_CONNECTED) {
-    WiFiClient client;
-    HTTPClient http;
+   std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
+    // Ignore SSL certificate validation
+    client->setInsecure();
 
-    http.begin(client, serverNameTook);
-    http.addHeader("Content-Type", "application/json");
+    //WiFiClient client;
+    HTTPClient https;
+
+    https.begin(*client, serverNameTook);
+    https.addHeader("Content-Type", "application/json");
 
     // Prepare JSON document
     DynamicJsonDocument doc(2048);
@@ -255,12 +285,12 @@ void postTook() {
     serializeJson(doc, json);
     Serial.print(json);
 
-    int httpResponseCode = http.POST(json);
+    int httpResponseCode = https.POST(json);
 
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
 
-    http.end();
+    https.end();
   } else {
     Serial.println("WiFi Disconnected");
   }
@@ -268,11 +298,15 @@ void postTook() {
 
 void postIsNotify() {
   if (WiFi.status() == WL_CONNECTED) {
-    WiFiClient client;
-    HTTPClient http;
+    std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
+    // Ignore SSL certificate validation
+    client->setInsecure();
 
-    http.begin(client, serverNameIsNotify);
-    http.addHeader("Content-Type", "application/json");
+    //WiFiClient client;
+    HTTPClient https;
+
+    https.begin(*client, serverNameIsNotify);
+    https.addHeader("Content-Type", "application/json");
 
     // Prepare JSON document
     DynamicJsonDocument doc(2048);
@@ -286,12 +320,12 @@ void postIsNotify() {
     serializeJson(doc, json);
     Serial.print(json);
 
-    int httpResponseCode = http.POST(json);
+    int httpResponseCode = https.POST(json);
 
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
 
-    http.end();
+    https.end();
   } else {
     Serial.println("WiFi Disconnected");
   }
@@ -407,6 +441,8 @@ void eventButton(String buttonName) {
       completed3 = false;
       actived3 = true;
       postAlarm();
+    } else if (mode == 0) { //mode 0 + E: Đồng bộ
+      getAlarm();
     }
   } else if (buttonName == "F") {
     if (notifying1 == 1) {  //nào đang thông báo thì tắt buổi đó
