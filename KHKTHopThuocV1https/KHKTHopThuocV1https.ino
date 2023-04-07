@@ -1,8 +1,9 @@
+#include <IRremote.hpp>
+
 #include <NTPClient.h>    //thư viện lấy giờ từ internet
 #include <ESP8266WiFi.h>  //thư viện wifi
 #include <WiFiUdp.h>      //thư viện wifi
 #include <TM1637.h>       //thư viện hiển thị trên mặt đồng hồ led tm1637
-#include <IRremote.h>     // thư viện giải mã tín hiệu hồng ngoại
 
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
@@ -71,9 +72,9 @@ int SIG = D0;  //chân D0 nhận tín hiệu từ điều khiển hồng ngoại
 int LOA = D1;  //chân D1 phát tín hiệu ra loa
 int CLK = D2;  //chân D2 và chân D3 hiển thị mặt đồng hồ
 int DIO = D3;
+int AS = A0;  //chân A0 nhận tín hiệu cảm biến ánh sáng
 
-IRrecv irrecv(SIG);      // tạo đối tượng IRrecv mới
-decode_results results;  // lưu giữ kết quả giải mã tín hiệu
+
 
 TM1637 tm(CLK, DIO);  //biến tm điều khiển mặt đồng hồ
 
@@ -103,9 +104,10 @@ void setup() {
   tm.init();  //khởi động mặt đồng hồ
   tm.set(2);  //thiết lập độ sáng cho mặt đồng hồ
 
-  irrecv.enableIRIn();  //khởi động nhận tín hiệu hồng ngoại
+  IrReceiver.begin(SIG);
 
   pinMode(D1, OUTPUT);  //khai báo chân D1 là chân phát tín hiệu
+  pinMode(D5, INPUT);
 }
 
 void loop() {
@@ -127,14 +129,41 @@ void loop() {
   // Serial.print(":");
   // Serial.println(timeClient.getSeconds());
 
+  //ĐỌC TÍN HIỆU CẢM BIẾN ÁNH SÁNG
+  //Serial.println(analogRead(AS)); //Khoảng dưới 200 là tối
+  if (analogRead(AS) > 200) {
+    if (notifying1 == 1) {  //nào đang thông báo thì tắt buổi đó
+      Serial.println("Đã uống thuốc buổi sáng");
+      notifying1 = 0;     //tắt đang thông báo
+      completed1 = true;  //đánh dấu đã hoàn thành
+      digitalWrite(LOA, LOW);
+      postTook();
+    }
+    if (notifying2 == 1) {
+      Serial.println("Đã uống thuốc buổi trưa");
+      notifying2 = 0;
+      completed2 = true;
+      digitalWrite(LOA, LOW);
+      postTook();
+    }
+    if (notifying3 == 1) {
+      Serial.println("Đã uống thuốc buổi tối");
+      notifying3 = 0;
+      completed3 = true;
+      digitalWrite(LOA, LOW);
+      postTook();
+    }
+  }
+
+
   //NHẬN TÍN HIỆU TỪ ĐIỀU KHIỂN HỒNG NGOẠI
-  if (irrecv.decode(&results))  // nếu nhận được tín hiệu
+  if (IrReceiver.decode())  // nếu nhận được tín hiệu
   {
-    String buttonName = translateSignal(results.value);  //Dịch tín hiệu thành tên nút bấm
+    String buttonName = translateSignal(IrReceiver.decodedIRData.decodedRawData);  //Dịch tín hiệu thành tên nút bấm
     eventButton(buttonName);
-    Serial.println(results.value, HEX);  //in ra mà hình sertial tín hiệu nhận được
+    Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);  //in ra mà hình sertial tín hiệu nhận được
     //delay(200);
-    irrecv.resume();  // nhận giá trị tín hiệu tiếp theo
+    IrReceiver.resume();  // nhận giá trị tín hiệu tiếp theo
   }
 
   delay(200);
@@ -334,27 +363,27 @@ void postIsNotify() {
 //Dịch tín hiệu hồng ngoại ra tên nút bấm
 String translateSignal(uint32_t signal) {
   switch (signal) {
-    case 0xFFA25D: return "A";
-    case 0xFF629D: return "B";
-    case 0xFFE21D: return "C";
-    case 0xFF22DD: return "D";
-    case 0xFF02FD: return "UP";
-    case 0xFFC23D: return "E";
-    case 0xFFE01F: return "LEFT";
-    case 0xFFA857: return "SETTING";
-    case 0xFF906F: return "RIGHT";
-    case 0xFF6897: return "0";
-    case 0xFF9867: return "DOWN";
-    case 0xFFB04F: return "F";
-    case 0xFF30CF: return "1";
-    case 0xFF18E7: return "2";
-    case 0xFF7A85: return "3";
-    case 0xFF10EF: return "4";
-    case 0xFF38C7: return "5";
-    case 0xFF5AA5: return "6";
-    case 0xFF42BD: return "7";
-    case 0xFF4AB5: return "8";
-    case 0xFF52AD: return "9";
+    case 0xBA45FF00: return "A";
+    case 0xB946FF00: return "B";
+    case 0xB847FF00: return "C";
+    case 0xBB44FF00: return "D";
+    case 0xBF40FF00: return "UP";
+    case 0xBC43FF00: return "E";
+    case 0xF807FF00: return "LEFT";
+    case 0xEA15FF00: return "SETTING";
+    case 0xF609FF00: return "RIGHT";
+    case 0xE916FF00: return "0";
+    case 0xE619FF00: return "DOWN";
+    case 0xF20DFF00: return "F";
+    // case 0xFF30CF: return "1";
+    // case 0xFF18E7: return "2";
+    // case 0xFF7A85: return "3";
+    // case 0xFF10EF: return "4";
+    // case 0xFF38C7: return "5";
+    // case 0xFF5AA5: return "6";
+    // case 0xFF42BD: return "7";
+    // case 0xFF4AB5: return "8";
+    // case 0xFF52AD: return "9";
     default: return "UNKNOWN";
   }
 }
